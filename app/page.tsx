@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
-import { Upload, Film, FileText, Subtitles, Palette, Clock, PackageOpen, Eye, EyeOff, Repeat, Volume2, VolumeX } from 'lucide-react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { Upload, Film, FileText, Subtitles, Palette, Clock, PackageOpen, Eye, EyeOff, Repeat, Volume2, VolumeX, Sun, Moon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SubtitleCue, SubtitleStyle, DEFAULT_STYLE, parseSrt } from '@/lib/srt'
 import VideoPlayer from '@/components/VideoPlayer'
@@ -130,6 +130,25 @@ export default function SubCraftPage() {
   const [currentTime, setCurrentTime]   = useState(0)
   const [activeCueId, setActiveCueId]   = useState<number | null>(null)
 
+  // Theme toggle
+  const [isDark, setIsDark] = useState(true)
+
+  useEffect(() => {
+    const html = document.documentElement
+    if (isDark) {
+      html.classList.add('dark')
+      html.classList.remove('light')
+    } else {
+      html.classList.add('light')
+      html.classList.remove('dark')
+    }
+  }, [isDark])
+
+  // Initialize dark class on mount
+  useEffect(() => {
+    document.documentElement.classList.add('dark')
+  }, [])
+
   // Playback control toggles
   const [showControls, setShowControls] = useState(true)
   const [loop, setLoop]                 = useState(false)
@@ -172,6 +191,15 @@ export default function SubCraftPage() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Theme toggle */}
+          <button
+            type="button"
+            onClick={() => setIsDark((d) => !d)}
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-border bg-surface text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
+          >
+            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
           <label className={cn(
             'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border cursor-pointer transition-all font-medium',
             videoSrc

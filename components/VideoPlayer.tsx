@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { Play, Pause, Maximize2, Film } from 'lucide-react'
 import { SubtitleCue, SubtitleStyle } from '@/lib/srt'
 import { cn } from '@/lib/utils'
@@ -39,7 +39,7 @@ export default function VideoPlayer({
   const isDraggingRef = useRef(false)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Keep a live ref to the callback so event listeners never go stale
+  // Always-fresh ref to the callback — never stale inside event listeners
   const onTimeUpdateRef = useRef(onTimeUpdate)
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate }, [onTimeUpdate])
 
@@ -48,94 +48,89 @@ export default function VideoPlayer({
   const [duration, setDuration] = useState(0)
   const [overlayVisible, setOverlayVisible] = useState(true)
 
-  // Sync muted prop → video element
+  // ── Sync controlled props to the DOM element every time they change ──
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    video.muted = muted
+    if (videoRef.current) videoRef.current.muted = muted
   }, [muted])
 
-  // Sync loop prop → video element
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    video.loop = loop
+    if (videoRef.current) videoRef.current.loop = loop
   }, [loop])
 
-  // Active subtitle cue derived from current time
+  // ── Active cue derived each render from currentTime ──────────────
   const activeCue = cues.find(
     (c) => currentTime >= c.startTime && currentTime <= c.endTime
   ) ?? null
 
-  // ── Auto-hide overlay controls ──────────────────────────────────
-  function scheduleHide() {
+  // ── Auto-hide overlay ─────────────────────────────────────────────
+  const scheduleHide = useCallback(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
     hideTimerRef.current = setTimeout(() => setOverlayVisible(false), 2500)
-  }
-  function revealOverlay() {
+  }, [])
+
+  const revealOverlay = useCallback(() => {
     setOverlayVisible(true)
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-  }
+  }, [])
 
-  // ── Attach all video event listeners once on mount ──────────────
+  // ── All video event listeners in one stable useEffect ────────────
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
-    function handleTimeUpdate() {
-      setCurrentTime(video!.currentTime)
-      onTimeUpdateRef.current?.(video!.currentTime)
+    const onTimeUpdateEvt = () => {
+      const t = video.currentTime
+      setCurrentTime(t)
+      onTimeUpdateRef.current?.(t)
     }
-    function handleLoadedMetadata() {
-      setDuration(video!.duration)
-      setCurrentTime(0)
-      // Sync props that may have been set before src loaded
-      video!.muted = muted
-      video!.loop = loop
+    const onMeta = () => {
+      if (isFinite(video.duration)) setDuration(video.duration)
+      setCurrentTime(video.currentTime)
+      // Re-apply controlled props after a new src loads
+      video.muted = muted
+      video.loop = loop
     }
-    function handleDurationChange() {
-      if (isFinite(video!.duration)) setDuration(video!.duration)
+    const onDurationChange = () => {
+      if (isFinite(video.duration)) setDuration(video.duration)
     }
-    function handlePlay() { setPlaying(true) }
-    function handlePause() { setPlaying(false) }
-    function handleEnded() { setPlaying(false) }
+    const onPlay  = () => setPlaying(true)
+    const onPause = () => setPlaying(false)
+    const onEnded = () => setPlaying(false)
 
-    video.addEventListener('timeupdate', handleTimeUpdate)
-    video.addEventListener('loadedmetadata', handleLoadedMetadata)
-    video.addEventListener('durationchange', handleDurationChange)
-    video.addEventListener('play', handlePlay)
-    video.addEventListener('pause', handlePause)
-    video.addEventListener('ended', handleEnded)
+    video.addEventListener('timeupdate',     onTimeUpdateEvt)
+    video.addEventListener('loadedmetadata', onMeta)
+    video.addEventListener('durationchange', onDurationChange)
+    video.addEventListener('play',           onPlay)
+    video.addEventListener('pause',          onPause)
+    video.addEventListener('ended',          onEnded)
 
     return () => {
-      video.removeEventListener('timeupdate', handleTimeUpdate)
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
-      video.removeEventListener('durationchange', handleDurationChange)
-      video.removeEventListener('play', handlePlay)
-      video.removeEventListener('pause', handlePause)
-      video.removeEventListener('ended', handleEnded)
+      video.removeEventListener('timeupdate',     onTimeUpdateEvt)
+      video.removeEventListener('loadedmetadata', onMeta)
+      video.removeEventListener('durationchange', onDurationChange)
+      video.removeEventListener('play',           onPlay)
+      video.removeEventListener('pause',          onPause)
+      video.removeEventListener('ended',          onEnded)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // intentionally empty — we use refs for callbacks
 
-  // Reset when video source changes
+  // Reset state when src changes
   useEffect(() => {
-    if (!videoSrc) return
     setPlaying(false)
     setCurrentTime(0)
     setDuration(0)
   }, [videoSrc])
 
-  // Seek to cue when timing editor clicks a cue
+  // Seek when timing editor clicks a cue
   useEffect(() => {
     if (activeCueId == null) return
     const cue = cues.find((c) => c.id === activeCueId)
-    if (cue && videoRef.current) {
-      videoRef.current.currentTime = cue.startTime
-    }
+    if (cue && videoRef.current) videoRef.current.currentTime = cue.startTime
   }, [activeCueId, cues])
 
-  // ── Playback ────────────────────────────────────────────────────
-  function togglePlay() {
+  // ── Playback toggle ───────────────────────────────────────────────
+  const togglePlay = useCallback(() => {
     const video = videoRef.current
     if (!video) return
     if (video.paused || video.ended) {
@@ -143,19 +138,19 @@ export default function VideoPlayer({
     } else {
       video.pause()
     }
-  }
+  }, [])
 
-  function toggleFullscreen() {
+  const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return
     if (document.fullscreenElement) {
       document.exitFullscreen()
     } else {
       containerRef.current.requestFullscreen()
     }
-  }
+  }, [])
 
-  // ── Seekbar ─────────────────────────────────────────────────────
-  function seekToClientX(clientX: number) {
+  // ── Seekbar — pointer-capture approach for reliable drag ─────────
+  const seekToClientX = useCallback((clientX: number) => {
     const bar = progressBarRef.current
     const video = videoRef.current
     if (!bar || !video || !isFinite(video.duration) || video.duration === 0) return
@@ -163,27 +158,28 @@ export default function VideoPlayer({
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
     video.currentTime = ratio * video.duration
     setCurrentTime(video.currentTime)
-  }
+  }, [])
 
-  function handleProgressMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+  const handleProgressPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
+    const bar = progressBarRef.current
+    if (!bar) return
+    bar.setPointerCapture(e.pointerId)
     isDraggingRef.current = true
     seekToClientX(e.clientX)
+  }, [seekToClientX])
 
-    function onMove(ev: MouseEvent) {
-      if (isDraggingRef.current) seekToClientX(ev.clientX)
-    }
-    function onUp() {
-      isDraggingRef.current = false
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }
+  const handleProgressPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return
+    seekToClientX(e.clientX)
+  }, [seekToClientX])
 
-  // ── Subtitle CSS ────────────────────────────────────────────────
-  const subtitleStyle: React.CSSProperties = {
+  const handleProgressPointerUp = useCallback(() => {
+    isDraggingRef.current = false
+  }, [])
+
+  // ── Subtitle styles ───────────────────────────────────────────────
+  const subtitleTextStyle: React.CSSProperties = {
     fontFamily: style.fontFamily,
     fontSize: `${style.fontSize * 3}px`,
     color: style.color,
@@ -199,12 +195,26 @@ export default function VideoPlayer({
     paintOrder: 'stroke fill' as React.CSSProperties['paintOrder'],
     lineHeight: 1.3,
     textAlign: 'center',
-    display: 'inline-block',
-    maxWidth: '90%',
   }
 
+  // Convert hex + opacity to rgba for backdrop
+  const backdropStyle: React.CSSProperties | undefined = style.backdropEnabled
+    ? (() => {
+        const hex = style.backdropColor.replace('#', '')
+        const r = parseInt(hex.slice(0, 2), 16)
+        const g = parseInt(hex.slice(2, 4), 16)
+        const b = parseInt(hex.slice(4, 6), 16)
+        const a = style.backdropOpacity / 100
+        return {
+          backgroundColor: `rgba(${r},${g},${b},${a})`,
+          padding: '0.15em 0.5em',
+          borderRadius: '0.2em',
+          display: 'inline-block',
+        }
+      })()
+    : undefined
+
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
-  // Whether the in-video overlay controls should render at all
   const overlayShown = showControls && overlayVisible
 
   return (
@@ -212,13 +222,8 @@ export default function VideoPlayer({
       ref={containerRef}
       className="relative w-full bg-black rounded-xl overflow-hidden select-none"
       style={{ aspectRatio: '16/9' }}
-      onMouseMove={() => {
-        revealOverlay()
-        if (playing) scheduleHide()
-      }}
-      onMouseLeave={() => {
-        if (playing) scheduleHide()
-      }}
+      onMouseMove={() => { revealOverlay(); if (playing) scheduleHide() }}
+      onMouseLeave={() => { if (playing) scheduleHide() }}
     >
       {/* Empty state */}
       {!videoSrc && (
@@ -244,18 +249,30 @@ export default function VideoPlayer({
       {/* Subtitle overlay */}
       {activeCue && videoSrc && (
         <div
-          className="absolute bottom-14 left-0 right-0 flex justify-center px-6 pointer-events-none"
+          className="absolute left-0 right-0 flex justify-center px-4 pointer-events-none"
+          style={{ bottom: showControls ? '72px' : '16px' }}
           aria-live="polite"
         >
-          <span style={subtitleStyle}>
-            {activeCue.text.split('\n').map((line, i) => (
-              <span key={i} className="block">{line}</span>
-            ))}
-          </span>
+          {style.backdropEnabled ? (
+            // Each line gets its own backdrop pill
+            <div className="flex flex-col items-center gap-1">
+              {activeCue.text.split('\n').map((line, i) => (
+                <span key={i} style={{ ...subtitleTextStyle, ...backdropStyle }}>
+                  {line}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span style={subtitleTextStyle}>
+              {activeCue.text.split('\n').map((line, i) => (
+                <span key={i} className="block">{line}</span>
+              ))}
+            </span>
+          )}
         </div>
       )}
 
-      {/* In-video overlay: progress + play/fullscreen */}
+      {/* In-video overlay controls */}
       {videoSrc && (
         <div
           className={cn(
@@ -266,24 +283,28 @@ export default function VideoPlayer({
           {/* Gradient backdrop */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
 
-          <div className="relative px-4 pb-3 pt-10">
-            {/* Progress bar */}
+          <div className="relative px-4 pb-3 pt-8">
+            {/* Progress bar — pointer-capture for reliable drag */}
             <div
               ref={progressBarRef}
-              className="w-full h-2 bg-white/20 rounded-full cursor-pointer mb-3 relative"
-              onMouseDown={handleProgressMouseDown}
+              className="w-full h-2 bg-white/20 rounded-full cursor-pointer mb-3 relative touch-none"
+              onPointerDown={handleProgressPointerDown}
+              onPointerMove={handleProgressPointerMove}
+              onPointerUp={handleProgressPointerUp}
             >
+              {/* Filled track */}
               <div
-                className="h-full bg-primary rounded-full pointer-events-none"
+                className="absolute inset-y-0 left-0 bg-primary rounded-full pointer-events-none"
                 style={{ width: `${progress}%` }}
               />
+              {/* Scrub thumb */}
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-lg pointer-events-none -ml-1.5 transition-opacity"
+                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-md pointer-events-none"
                 style={{ left: `${progress}%` }}
               />
             </div>
 
-            {/* Button row */}
+            {/* Controls row */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {/* Play / Pause */}
@@ -294,16 +315,14 @@ export default function VideoPlayer({
                 >
                   {playing
                     ? <Pause className="w-5 h-5 fill-current" />
-                    : <Play className="w-5 h-5 fill-current" />
+                    : <Play  className="w-5 h-5 fill-current" />
                   }
                 </button>
-
                 {/* Timer */}
                 <span className="text-white/70 text-xs tabular-nums font-mono">
-                  {formatTime(currentTime)} / {formatTime(duration)}
+                  {formatTime(currentTime)}&nbsp;/&nbsp;{formatTime(duration)}
                 </span>
               </div>
-
               {/* Fullscreen */}
               <button
                 onClick={toggleFullscreen}

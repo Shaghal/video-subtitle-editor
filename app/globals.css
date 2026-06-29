@@ -56,10 +56,10 @@
   --color-surface-overlay: var(--surface-overlay);
 }
 
-:root {
+/* ── Dark theme (default) ─────────────────────────────────────────── */
+:root, .dark {
   color-scheme: dark;
 
-  /* Deep cinematic dark palette */
   --background: oklch(0.09 0.004 264);
   --foreground: oklch(0.94 0.005 264);
 
@@ -69,7 +69,6 @@
   --popover: oklch(0.14 0.006 264);
   --popover-foreground: oklch(0.94 0.005 264);
 
-  /* Electric amber brand accent */
   --primary: oklch(0.78 0.17 62);
   --primary-foreground: oklch(0.1 0 0);
 
@@ -90,7 +89,6 @@
 
   --radius: 0.5rem;
 
-  /* Custom surfaces */
   --surface: oklch(0.14 0.007 264);
   --surface-raised: oklch(0.17 0.007 264);
   --surface-overlay: oklch(0.20 0.007 264);
@@ -113,6 +111,59 @@
   --sidebar-ring: oklch(0.78 0.17 62 / 60%);
 }
 
+/* ── Light theme ──────────────────────────────────────────────────── */
+.light {
+  color-scheme: light;
+
+  --background: oklch(0.98 0.002 264);
+  --foreground: oklch(0.15 0.006 264);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.006 264);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.006 264);
+
+  --primary: oklch(0.65 0.17 62);
+  --primary-foreground: oklch(1 0 0);
+
+  --secondary: oklch(0.94 0.004 264);
+  --secondary-foreground: oklch(0.25 0.008 264);
+
+  --muted: oklch(0.95 0.003 264);
+  --muted-foreground: oklch(0.48 0.012 264);
+
+  --accent: oklch(0.65 0.17 62);
+  --accent-foreground: oklch(1 0 0);
+
+  --destructive: oklch(0.58 0.22 25);
+
+  --border: oklch(0 0 0 / 10%);
+  --input: oklch(0 0 0 / 8%);
+  --ring: oklch(0.65 0.17 62 / 50%);
+
+  --surface: oklch(0.96 0.003 264);
+  --surface-raised: oklch(0.93 0.004 264);
+  --surface-overlay: oklch(0.90 0.005 264);
+  --amber: oklch(0.65 0.17 62);
+  --amber-dim: oklch(0.65 0.17 62 / 12%);
+
+  --chart-1: oklch(0.65 0.17 62);
+  --chart-2: oklch(0.55 0.15 200);
+  --chart-3: oklch(0.60 0.16 160);
+  --chart-4: oklch(0.62 0.18 290);
+  --chart-5: oklch(0.58 0.20 20);
+
+  --sidebar: oklch(0.96 0.003 264);
+  --sidebar-foreground: oklch(0.20 0.006 264);
+  --sidebar-primary: oklch(0.65 0.17 62);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.93 0.004 264);
+  --sidebar-accent-foreground: oklch(0.20 0.006 264);
+  --sidebar-border: oklch(0 0 0 / 10%);
+  --sidebar-ring: oklch(0.65 0.17 62 / 50%);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -121,7 +172,7 @@
     @apply bg-background text-foreground;
   }
   html {
-    @apply font-sans dark;
+    @apply font-sans;
   }
 
   /* Custom scrollbar */
