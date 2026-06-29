@@ -64,16 +64,20 @@ export default function ExportPanel({ cues, style, videoBlob, videoName }: Expor
         .withCss(captionCss)
         .build()
 
-      const { blob } = await pipeline.run((event: { stage: string; progress: number }) => {
+      const { blob } = await pipeline.run((event: Record<string, unknown>) => {
         const stageLabels: Record<string, string> = {
           transcription: 'Transcribing…',
-          splitting: 'Splitting segments…',
-          tagging: 'Tagging…',
-          rendering: 'Rendering frames…',
+          splitting:     'Splitting segments…',
+          tagging:       'Tagging…',
+          rendering:     'Rendering frames…',
         }
-        const label = stageLabels[event.stage] ?? event.stage
-        const pct = Math.round(event.progress * 100)
-        setHardsubStatus({ type: 'progress', stage: label, pct: Math.max(5, pct) })
+        const stage  = typeof event.stage    === 'string' ? event.stage    : ''
+        const rawPct = typeof event.progress === 'number' ? event.progress
+                     : typeof event.pct      === 'number' ? event.pct / 100
+                     : 0
+        const label = stageLabels[stage] ?? stage ?? 'Processing…'
+        const pct   = isFinite(rawPct) ? Math.max(5, Math.min(100, Math.round(rawPct * 100))) : 5
+        setHardsubStatus({ type: 'progress', stage: label, pct })
       })
 
       const filename =

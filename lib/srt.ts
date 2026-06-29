@@ -17,6 +17,7 @@ export interface SubtitleStyle {
   backdropEnabled: boolean
   backdropColor: string  // hex
   backdropOpacity: number // 0–100
+  placement: 'bottom' | 'center' | 'top'
 }
 
 export const DEFAULT_STYLE: SubtitleStyle = {
@@ -31,6 +32,7 @@ export const DEFAULT_STYLE: SubtitleStyle = {
   backdropEnabled: false,
   backdropColor: '#000000',
   backdropOpacity: 60,
+  placement: 'bottom',
 }
 
 /** Parse a timestamp like "00:01:23,456" → seconds */

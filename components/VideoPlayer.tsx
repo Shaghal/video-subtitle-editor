@@ -23,6 +23,14 @@ function formatTime(sec: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+function hexToRgba(hex: string, opacity: number): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${opacity / 100})`
+}
+
 export default function VideoPlayer({
   videoSrc,
   cues,
@@ -33,36 +41,40 @@ export default function VideoPlayer({
   loop = false,
   muted = false,
 }: VideoPlayerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const progressBarRef = useRef<HTMLDivElement>(null)
-  const isDraggingRef = useRef(false)
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const videoRef        = useRef<HTMLVideoElement>(null)
+  const containerRef    = useRef<HTMLDivElement>(null)
+  const progressBarRef  = useRef<HTMLDivElement>(null)
+  const isDraggingRef   = useRef(false)
+  const hideTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Always-fresh ref to the callback — never stale inside event listeners
+  // Keep callbacks fresh without re-registering event listeners
   const onTimeUpdateRef = useRef(onTimeUpdate)
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate }, [onTimeUpdate])
 
-  const [playing, setPlaying] = useState(false)
+  const [playing, setPlaying]       = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
+  const [duration, setDuration]     = useState(0)
   const [overlayVisible, setOverlayVisible] = useState(true)
 
-  // ── Sync controlled props to the DOM element every time they change ──
+  // ── Sync muted / loop props → DOM element ──────────────────────
   useEffect(() => {
-    if (videoRef.current) videoRef.current.muted = muted
+    const v = videoRef.current
+    if (!v) return
+    v.muted = muted
   }, [muted])
 
   useEffect(() => {
-    if (videoRef.current) videoRef.current.loop = loop
+    const v = videoRef.current
+    if (!v) return
+    v.loop = loop
   }, [loop])
 
-  // ── Active cue derived each render from currentTime ──────────────
+  // ── Active cue: derived from currentTime every render ──────────
   const activeCue = cues.find(
     (c) => currentTime >= c.startTime && currentTime <= c.endTime
   ) ?? null
 
-  // ── Auto-hide overlay ─────────────────────────────────────────────
+  // ── Controls auto-hide ─────────────────────────────────────────
   const scheduleHide = useCallback(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
     hideTimerRef.current = setTimeout(() => setOverlayVisible(false), 2500)
@@ -73,7 +85,7 @@ export default function VideoPlayer({
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
   }, [])
 
-  // ── All video event listeners in one stable useEffect ────────────
+  // ── Register all video events once ─────────────────────────────
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
@@ -86,16 +98,13 @@ export default function VideoPlayer({
     const onMeta = () => {
       if (isFinite(video.duration)) setDuration(video.duration)
       setCurrentTime(video.currentTime)
-      // Re-apply controlled props after a new src loads
-      video.muted = muted
-      video.loop = loop
     }
     const onDurationChange = () => {
       if (isFinite(video.duration)) setDuration(video.duration)
     }
     const onPlay  = () => setPlaying(true)
     const onPause = () => setPlaying(false)
-    const onEnded = () => setPlaying(false)
+    const onEnded = () => { setPlaying(false); setOverlayVisible(true) }
 
     video.addEventListener('timeupdate',     onTimeUpdateEvt)
     video.addEventListener('loadedmetadata', onMeta)
@@ -112,33 +121,44 @@ export default function VideoPlayer({
       video.removeEventListener('pause',          onPause)
       video.removeEventListener('ended',          onEnded)
     }
+  // Empty deps: all callbacks accessed via refs or stable setters
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // intentionally empty — we use refs for callbacks
+  }, [])
 
-  // Reset state when src changes
+  // ── React to src changes — must call load() for metadata ───────
   useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
     setPlaying(false)
     setCurrentTime(0)
     setDuration(0)
+    if (videoSrc) {
+      video.src = videoSrc
+      video.muted = muted
+      video.loop = loop
+      video.load()
+    }
+  // Only re-run when videoSrc changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoSrc])
 
-  // Seek when timing editor clicks a cue
+  // ── Jump to cue when timing editor clicks one ──────────────────
   useEffect(() => {
     if (activeCueId == null) return
     const cue = cues.find((c) => c.id === activeCueId)
     if (cue && videoRef.current) videoRef.current.currentTime = cue.startTime
   }, [activeCueId, cues])
 
-  // ── Playback toggle ───────────────────────────────────────────────
+  // ── Playback toggle ────────────────────────────────────────────
   const togglePlay = useCallback(() => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || !videoSrc) return
     if (video.paused || video.ended) {
       video.play().catch(() => {})
     } else {
       video.pause()
     }
-  }, [])
+  }, [videoSrc])
 
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return
@@ -149,73 +169,67 @@ export default function VideoPlayer({
     }
   }, [])
 
-  // ── Seekbar — pointer-capture approach for reliable drag ─────────
+  // ── Seekbar — pointer capture for reliable drag across devices ─
   const seekToClientX = useCallback((clientX: number) => {
-    const bar = progressBarRef.current
+    const bar   = progressBarRef.current
     const video = videoRef.current
     if (!bar || !video || !isFinite(video.duration) || video.duration === 0) return
-    const rect = bar.getBoundingClientRect()
+    const rect  = bar.getBoundingClientRect()
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
     video.currentTime = ratio * video.duration
     setCurrentTime(video.currentTime)
   }, [])
 
-  const handleProgressPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
-    const bar = progressBarRef.current
-    if (!bar) return
-    bar.setPointerCapture(e.pointerId)
     isDraggingRef.current = true
+    progressBarRef.current?.setPointerCapture(e.pointerId)
     seekToClientX(e.clientX)
   }, [seekToClientX])
 
-  const handleProgressPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingRef.current) return
     seekToClientX(e.clientX)
   }, [seekToClientX])
 
-  const handleProgressPointerUp = useCallback(() => {
+  const handlePointerUp = useCallback(() => {
     isDraggingRef.current = false
   }, [])
 
-  // ── Subtitle styles ───────────────────────────────────────────────
+  // ── Subtitle positioning from style.placement ──────────────────
+  const placementStyle = (): React.CSSProperties => {
+    switch (style.placement) {
+      case 'top':    return { top: '12px', bottom: 'auto' }
+      case 'center': return { top: '50%', transform: 'translateY(-50%)', bottom: 'auto' }
+      case 'bottom':
+      default:       return { bottom: showControls ? '68px' : '12px', top: 'auto' }
+    }
+  }
+
+  // ── Subtitle text styles ───────────────────────────────────────
+  const subtitleFontSize = Math.max(12, style.fontSize * 3)    // px, min 12
   const subtitleTextStyle: React.CSSProperties = {
     fontFamily: style.fontFamily,
-    fontSize: `${style.fontSize * 3}px`,
+    fontSize: `${subtitleFontSize}px`,
     color: style.color,
     fontWeight: style.bold ? 800 : 400,
     fontStyle: style.italic ? 'italic' : 'normal',
     textShadow: style.shadow
       ? '0 1px 4px rgba(0,0,0,0.9), 0 2px 12px rgba(0,0,0,0.6)'
       : undefined,
-    WebkitTextStroke:
-      style.strokeWidth > 0
-        ? `${(style.strokeWidth / 100).toFixed(3)}em ${style.strokeColor}`
-        : undefined,
+    WebkitTextStroke: style.strokeWidth > 0
+      ? `${(style.strokeWidth / 100).toFixed(3)}em ${style.strokeColor}`
+      : undefined,
     paintOrder: 'stroke fill' as React.CSSProperties['paintOrder'],
     lineHeight: 1.3,
     textAlign: 'center',
   }
 
-  // Convert hex + opacity to rgba for backdrop
-  const backdropStyle: React.CSSProperties | undefined = style.backdropEnabled
-    ? (() => {
-        const hex = style.backdropColor.replace('#', '')
-        const r = parseInt(hex.slice(0, 2), 16)
-        const g = parseInt(hex.slice(2, 4), 16)
-        const b = parseInt(hex.slice(4, 6), 16)
-        const a = style.backdropOpacity / 100
-        return {
-          backgroundColor: `rgba(${r},${g},${b},${a})`,
-          padding: '0.15em 0.5em',
-          borderRadius: '0.2em',
-          display: 'inline-block',
-        }
-      })()
+  const backdropBg = style.backdropEnabled
+    ? hexToRgba(style.backdropColor, style.backdropOpacity)
     : undefined
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
-  const overlayShown = showControls && overlayVisible
 
   return (
     <div
@@ -235,39 +249,45 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* Video element */}
-      {videoSrc && (
-        <video
-          ref={videoRef}
-          src={videoSrc}
-          className="w-full h-full object-contain cursor-pointer"
-          onClick={togglePlay}
-          playsInline
-        />
-      )}
+      {/* Video element — src is managed imperatively via useEffect + .load() */}
+      <video
+        ref={videoRef}
+        className="w-full h-full object-contain cursor-pointer"
+        onClick={togglePlay}
+        playsInline
+        preload="metadata"
+      />
 
       {/* Subtitle overlay */}
       {activeCue && videoSrc && (
         <div
           className="absolute left-0 right-0 flex justify-center px-4 pointer-events-none"
-          style={{ bottom: showControls ? '72px' : '16px' }}
+          style={{ ...placementStyle(), zIndex: 10 }}
           aria-live="polite"
         >
           {style.backdropEnabled ? (
-            // Each line gets its own backdrop pill
-            <div className="flex flex-col items-center gap-1">
+            <div className="flex flex-col items-center gap-0.5">
               {activeCue.text.split('\n').map((line, i) => (
-                <span key={i} style={{ ...subtitleTextStyle, ...backdropStyle }}>
+                <span
+                  key={i}
+                  style={{
+                    ...subtitleTextStyle,
+                    backgroundColor: backdropBg,
+                    padding: '0.12em 0.45em',
+                    borderRadius: '0.18em',
+                    display: 'inline-block',
+                  }}
+                >
                   {line}
                 </span>
               ))}
             </div>
           ) : (
-            <span style={subtitleTextStyle}>
+            <div style={subtitleTextStyle}>
               {activeCue.text.split('\n').map((line, i) => (
                 <span key={i} className="block">{line}</span>
               ))}
-            </span>
+            </div>
           )}
         </div>
       )}
@@ -277,27 +297,25 @@ export default function VideoPlayer({
         <div
           className={cn(
             'absolute inset-x-0 bottom-0 transition-opacity duration-300',
-            overlayShown ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            showControls && overlayVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
           )}
+          style={{ zIndex: 20 }}
         >
-          {/* Gradient backdrop */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
 
           <div className="relative px-4 pb-3 pt-8">
-            {/* Progress bar — pointer-capture for reliable drag */}
+            {/* Progress bar */}
             <div
               ref={progressBarRef}
               className="w-full h-2 bg-white/20 rounded-full cursor-pointer mb-3 relative touch-none"
-              onPointerDown={handleProgressPointerDown}
-              onPointerMove={handleProgressPointerMove}
-              onPointerUp={handleProgressPointerUp}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
             >
-              {/* Filled track */}
               <div
                 className="absolute inset-y-0 left-0 bg-primary rounded-full pointer-events-none"
                 style={{ width: `${progress}%` }}
               />
-              {/* Scrub thumb */}
               <div
                 className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-md pointer-events-none"
                 style={{ left: `${progress}%` }}
@@ -307,7 +325,6 @@ export default function VideoPlayer({
             {/* Controls row */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                {/* Play / Pause */}
                 <button
                   onClick={togglePlay}
                   className="text-white hover:text-primary transition-colors"
@@ -318,12 +335,10 @@ export default function VideoPlayer({
                     : <Play  className="w-5 h-5 fill-current" />
                   }
                 </button>
-                {/* Timer */}
                 <span className="text-white/70 text-xs tabular-nums font-mono">
                   {formatTime(currentTime)}&nbsp;/&nbsp;{formatTime(duration)}
                 </span>
               </div>
-              {/* Fullscreen */}
               <button
                 onClick={toggleFullscreen}
                 className="text-white/70 hover:text-white transition-colors"
