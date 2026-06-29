@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useEffect, useState } from 'react'
-import { Play, Pause, Volume2, VolumeX, Maximize2, Film } from 'lucide-react'
+import { Play, Pause, Maximize2, Film } from 'lucide-react'
 import { SubtitleCue, SubtitleStyle } from '@/lib/srt'
 import { cn } from '@/lib/utils'
 
@@ -11,6 +11,9 @@ interface VideoPlayerProps {
   style: SubtitleStyle
   onTimeUpdate?: (time: number) => void
   activeCueId?: number | null
+  showControls?: boolean
+  loop?: boolean
+  muted?: boolean
 }
 
 function formatTime(sec: number): string {
@@ -26,6 +29,9 @@ export default function VideoPlayer({
   style,
   onTimeUpdate,
   activeCueId,
+  showControls = true,
+  loop = false,
+  muted = false,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -38,23 +44,36 @@ export default function VideoPlayer({
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate }, [onTimeUpdate])
 
   const [playing, setPlaying] = useState(false)
-  const [muted, setMuted] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [controlsVisible, setControlsVisible] = useState(true)
+  const [overlayVisible, setOverlayVisible] = useState(true)
 
-  // Active subtitle cue
+  // Sync muted prop → video element
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.muted = muted
+  }, [muted])
+
+  // Sync loop prop → video element
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.loop = loop
+  }, [loop])
+
+  // Active subtitle cue derived from current time
   const activeCue = cues.find(
     (c) => currentTime >= c.startTime && currentTime <= c.endTime
   ) ?? null
 
-  // ── Auto-hide controls ──────────────────────────────────────────
+  // ── Auto-hide overlay controls ──────────────────────────────────
   function scheduleHide() {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-    hideTimerRef.current = setTimeout(() => setControlsVisible(false), 2500)
+    hideTimerRef.current = setTimeout(() => setOverlayVisible(false), 2500)
   }
-  function revealControls() {
-    setControlsVisible(true)
+  function revealOverlay() {
+    setOverlayVisible(true)
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
   }
 
@@ -70,19 +89,16 @@ export default function VideoPlayer({
     function handleLoadedMetadata() {
       setDuration(video!.duration)
       setCurrentTime(0)
+      // Sync props that may have been set before src loaded
+      video!.muted = muted
+      video!.loop = loop
     }
     function handleDurationChange() {
       if (isFinite(video!.duration)) setDuration(video!.duration)
     }
-    function handlePlay() {
-      setPlaying(true)
-    }
-    function handlePause() {
-      setPlaying(false)
-    }
-    function handleEnded() {
-      setPlaying(false)
-    }
+    function handlePlay() { setPlaying(true) }
+    function handlePause() { setPlaying(false) }
+    function handleEnded() { setPlaying(false) }
 
     video.addEventListener('timeupdate', handleTimeUpdate)
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
@@ -99,12 +115,11 @@ export default function VideoPlayer({
       video.removeEventListener('pause', handlePause)
       video.removeEventListener('ended', handleEnded)
     }
-  }, []) // empty deps — listeners are stable, callbacks use refs
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-attach listeners when videoSrc changes (new video element src)
+  // Reset when video source changes
   useEffect(() => {
-    const video = videoRef.current
-    if (!video || !videoSrc) return
+    if (!videoSrc) return
     setPlaying(false)
     setCurrentTime(0)
     setDuration(0)
@@ -119,22 +134,15 @@ export default function VideoPlayer({
     }
   }, [activeCueId, cues])
 
-  // ── Playback controls ───────────────────────────────────────────
+  // ── Playback ────────────────────────────────────────────────────
   function togglePlay() {
     const video = videoRef.current
     if (!video) return
     if (video.paused || video.ended) {
-      video.play().catch(() => {/* autoplay policy */})
+      video.play().catch(() => {})
     } else {
       video.pause()
     }
-  }
-
-  function toggleMute() {
-    const video = videoRef.current
-    if (!video) return
-    video.muted = !video.muted
-    setMuted(video.muted)
   }
 
   function toggleFullscreen() {
@@ -174,7 +182,7 @@ export default function VideoPlayer({
     document.addEventListener('mouseup', onUp)
   }
 
-  // ── Subtitle text style ─────────────────────────────────────────
+  // ── Subtitle CSS ────────────────────────────────────────────────
   const subtitleStyle: React.CSSProperties = {
     fontFamily: style.fontFamily,
     fontSize: `${style.fontSize * 3}px`,
@@ -196,6 +204,8 @@ export default function VideoPlayer({
   }
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
+  // Whether the in-video overlay controls should render at all
+  const overlayShown = showControls && overlayVisible
 
   return (
     <div
@@ -203,7 +213,7 @@ export default function VideoPlayer({
       className="relative w-full bg-black rounded-xl overflow-hidden select-none"
       style={{ aspectRatio: '16/9' }}
       onMouseMove={() => {
-        revealControls()
+        revealOverlay()
         if (playing) scheduleHide()
       }}
       onMouseLeave={() => {
@@ -245,12 +255,12 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* Controls */}
+      {/* In-video overlay: progress + play/fullscreen */}
       {videoSrc && (
         <div
           className={cn(
             'absolute inset-x-0 bottom-0 transition-opacity duration-300',
-            controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            overlayShown ? 'opacity-100' : 'opacity-0 pointer-events-none'
           )}
         >
           {/* Gradient backdrop */}
@@ -260,17 +270,15 @@ export default function VideoPlayer({
             {/* Progress bar */}
             <div
               ref={progressBarRef}
-              className="w-full h-2 bg-white/20 rounded-full cursor-pointer mb-3 group/bar relative"
+              className="w-full h-2 bg-white/20 rounded-full cursor-pointer mb-3 relative"
               onMouseDown={handleProgressMouseDown}
             >
-              {/* Filled track */}
               <div
                 className="h-full bg-primary rounded-full pointer-events-none"
                 style={{ width: `${progress}%` }}
               />
-              {/* Scrub handle */}
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-lg pointer-events-none -ml-1.5"
+                className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-lg pointer-events-none -ml-1.5 transition-opacity"
                 style={{ left: `${progress}%` }}
               />
             </div>
@@ -287,18 +295,6 @@ export default function VideoPlayer({
                   {playing
                     ? <Pause className="w-5 h-5 fill-current" />
                     : <Play className="w-5 h-5 fill-current" />
-                  }
-                </button>
-
-                {/* Mute */}
-                <button
-                  onClick={toggleMute}
-                  className="text-white/70 hover:text-white transition-colors"
-                  aria-label={muted ? 'Unmute' : 'Mute'}
-                >
-                  {muted
-                    ? <VolumeX className="w-4 h-4" />
-                    : <Volume2 className="w-4 h-4" />
                   }
                 </button>
 
