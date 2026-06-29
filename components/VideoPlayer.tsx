@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Play, Pause, Volume2, VolumeX, Maximize2, Film } from 'lucide-react'
-import { SubtitleCue, SubtitleStyle, DEFAULT_STYLE } from '@/lib/srt'
+import { SubtitleCue, SubtitleStyle } from '@/lib/srt'
 import { cn } from '@/lib/utils'
 
 interface VideoPlayerProps {
@@ -14,6 +14,7 @@ interface VideoPlayerProps {
 }
 
 function formatTime(sec: number): string {
+  if (!isFinite(sec) || isNaN(sec)) return '00:00'
   const m = Math.floor(sec / 60)
   const s = Math.floor(sec % 60)
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
@@ -28,91 +29,108 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const progressRef = useRef<HTMLDivElement>(null)
+  const progressBarRef = useRef<HTMLDivElement>(null)
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isDraggingRef = useRef(false)
+
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [hovering, setHovering] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Find currently active cue
   const activeCue = cues.find(
     (c) => currentTime >= c.startTime && currentTime <= c.endTime
   )
 
-  const showControls = useCallback(() => {
+  // --- Controls auto-hide ---
+  const scheduleHide = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = setTimeout(() => setControlsVisible(false), 2500)
+  }, [])
+
+  const revealControls = useCallback(() => {
     setControlsVisible(true)
-    if (hideTimer.current) clearTimeout(hideTimer.current)
-    if (playing) {
-      hideTimer.current = setTimeout(() => setControlsVisible(false), 2500)
-    }
-  }, [playing])
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+  }, [])
 
-  useEffect(() => {
-    showControls()
-  }, [playing, showControls])
-
+  // --- Video event listeners ---
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
-    const onTime = () => {
+    const onTimeUpdate = () => {
       setCurrentTime(video.currentTime)
-      onTimeUpdate?.(video.currentTime)
+      onTimeUpdate_prop(video.currentTime)
     }
-    const onDuration = () => setDuration(video.duration)
-    const onPlay = () => setPlaying(true)
-    const onPause = () => setPlaying(false)
-    const onEnded = () => setPlaying(false)
+    const onLoadedMetadata = () => {
+      setDuration(video.duration)
+      setCurrentTime(0)
+    }
+    const onDurationChange = () => {
+      if (isFinite(video.duration)) setDuration(video.duration)
+    }
+    const onPlay = () => {
+      setPlaying(true)
+      scheduleHide()
+    }
+    const onPause = () => {
+      setPlaying(false)
+      revealControls()
+    }
+    const onEnded = () => {
+      setPlaying(false)
+      revealControls()
+    }
 
-    video.addEventListener('timeupdate', onTime)
-    video.addEventListener('durationchange', onDuration)
-    video.addEventListener('loadedmetadata', onDuration)
+    video.addEventListener('timeupdate', onTimeUpdate)
+    video.addEventListener('loadedmetadata', onLoadedMetadata)
+    video.addEventListener('durationchange', onDurationChange)
     video.addEventListener('play', onPlay)
     video.addEventListener('pause', onPause)
     video.addEventListener('ended', onEnded)
+
     return () => {
-      video.removeEventListener('timeupdate', onTime)
-      video.removeEventListener('durationchange', onDuration)
-      video.removeEventListener('loadedmetadata', onDuration)
+      video.removeEventListener('timeupdate', onTimeUpdate)
+      video.removeEventListener('loadedmetadata', onLoadedMetadata)
+      video.removeEventListener('durationchange', onDurationChange)
       video.removeEventListener('play', onPlay)
       video.removeEventListener('pause', onPause)
       video.removeEventListener('ended', onEnded)
     }
-  }, [onTimeUpdate])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleHide, revealControls])
 
-  // Highlight active cue from editor click
+  // Keep a stable ref to the onTimeUpdate prop
+  const onTimeUpdateRef = useRef(onTimeUpdate)
+  useEffect(() => { onTimeUpdateRef.current = onTimeUpdate }, [onTimeUpdate])
+  const onTimeUpdate_prop = useCallback((t: number) => onTimeUpdateRef.current?.(t), [])
+
+  // Seek to active cue when clicked in the timing editor
   useEffect(() => {
     if (activeCueId != null && videoRef.current) {
       const cue = cues.find((c) => c.id === activeCueId)
-      if (cue) {
-        videoRef.current.currentTime = cue.startTime
-      }
+      if (cue) videoRef.current.currentTime = cue.startTime
     }
   }, [activeCueId, cues])
 
+  // --- Playback controls ---
   const togglePlay = () => {
     const video = videoRef.current
     if (!video) return
-    if (video.paused) video.play()
-    else video.pause()
+    if (video.paused || video.ended) {
+      video.play()
+    } else {
+      video.pause()
+    }
   }
 
   const toggleMute = () => {
-    if (!videoRef.current) return
-    videoRef.current.muted = !muted
-    setMuted(!muted)
-  }
-
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const bar = progressRef.current
     const video = videoRef.current
-    if (!bar || !video || !duration) return
-    const rect = bar.getBoundingClientRect()
-    const ratio = (e.clientX - rect.left) / rect.width
-    video.currentTime = Math.max(0, Math.min(duration, ratio * duration))
+    if (!video) return
+    video.muted = !video.muted
+    setMuted(video.muted)
   }
 
   const toggleFullscreen = () => {
@@ -124,15 +142,45 @@ export default function VideoPlayer({
     }
   }
 
+  // --- Seekbar scrubbing ---
+  const seekToRatio = useCallback((clientX: number) => {
+    const bar = progressBarRef.current
+    const video = videoRef.current
+    if (!bar || !video || !isFinite(video.duration) || video.duration === 0) return
+    const rect = bar.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    video.currentTime = ratio * video.duration
+    setCurrentTime(video.currentTime)
+  }, [])
+
+  const handleProgressMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    isDraggingRef.current = true
+    seekToRatio(e.clientX)
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (isDraggingRef.current) seekToRatio(ev.clientX)
+    }
+    const onMouseUp = () => {
+      isDraggingRef.current = false
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }
+
+  // --- Subtitle text style ---
   const subtitleTextStyle: React.CSSProperties = {
     fontFamily: style.fontFamily,
-    fontSize: `${style.fontSize * 0.6}px`,  // rough preview scale
+    fontSize: `${style.fontSize * 0.6}px`,
     color: style.color,
     fontWeight: style.bold ? 800 : 400,
     fontStyle: style.italic ? 'italic' : 'normal',
-    WebkitTextStroke: style.strokeWidth > 0
-      ? `${(style.strokeWidth / 100).toFixed(3)}em ${style.strokeColor}`
-      : undefined,
+    WebkitTextStroke:
+      style.strokeWidth > 0
+        ? `${(style.strokeWidth / 100).toFixed(3)}em ${style.strokeColor}`
+        : undefined,
     paintOrder: 'stroke fill' as React.CSSProperties['paintOrder'],
     textShadow: style.shadow ? '0 2px 8px rgba(0,0,0,0.8)' : undefined,
     lineHeight: 1.25,
@@ -144,13 +192,14 @@ export default function VideoPlayer({
   return (
     <div
       ref={containerRef}
-      className="relative w-full bg-black rounded-xl overflow-hidden group select-none"
+      className="relative w-full bg-black rounded-xl overflow-hidden select-none"
       style={{ aspectRatio: '16/9' }}
-      onMouseMove={showControls}
-      onMouseEnter={() => setHovering(true)}
+      onMouseMove={() => {
+        revealControls()
+        if (playing) scheduleHide()
+      }}
       onMouseLeave={() => {
-        setHovering(false)
-        if (playing) setControlsVisible(false)
+        if (playing) scheduleHide()
       }}
     >
       {/* Empty state */}
@@ -163,12 +212,12 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* Video */}
+      {/* Video element */}
       {videoSrc && (
         <video
           ref={videoRef}
           src={videoSrc}
-          className="w-full h-full object-contain"
+          className="w-full h-full object-contain cursor-pointer"
           onClick={togglePlay}
           playsInline
         />
@@ -180,10 +229,7 @@ export default function VideoPlayer({
           className="absolute bottom-14 left-0 right-0 flex justify-center px-6 pointer-events-none"
           aria-live="polite"
         >
-          <span
-            style={subtitleTextStyle}
-            className="max-w-[90%] px-3 py-1 rounded"
-          >
+          <span style={subtitleTextStyle} className="max-w-[90%] px-3 py-1 rounded">
             {activeCue.text.split('\n').map((line, i) => (
               <span key={i} className="block">{line}</span>
             ))}
@@ -196,28 +242,28 @@ export default function VideoPlayer({
         <div
           className={cn(
             'absolute inset-x-0 bottom-0 transition-opacity duration-300',
-            controlsVisible || hovering ? 'opacity-100' : 'opacity-0'
+            controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
           )}
         >
-          {/* Gradient fade */}
+          {/* Gradient */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
 
-          {/* Controls bar */}
           <div className="relative px-4 pb-3 pt-8">
             {/* Progress bar */}
             <div
-              ref={progressRef}
-              className="w-full h-1 bg-white/20 rounded-full cursor-pointer mb-3 hover:h-1.5 transition-all"
-              onClick={handleProgressClick}
+              ref={progressBarRef}
+              className="w-full h-1.5 bg-white/20 rounded-full cursor-pointer mb-3 group/bar hover:h-2.5 transition-all duration-100"
+              onMouseDown={handleProgressMouseDown}
             >
               <div
-                className="h-full bg-primary rounded-full relative"
+                className="h-full bg-primary rounded-full relative pointer-events-none"
                 style={{ width: `${progress}%` }}
               >
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-primary rounded-full -mr-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-primary rounded-full -mr-1.5 shadow-lg opacity-0 group-hover/bar:opacity-100 transition-opacity" />
               </div>
             </div>
 
+            {/* Buttons row */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
@@ -230,6 +276,7 @@ export default function VideoPlayer({
                     : <Play className="w-5 h-5 fill-current" />
                   }
                 </button>
+
                 <button
                   onClick={toggleMute}
                   className="text-white/70 hover:text-white transition-colors"
@@ -240,7 +287,8 @@ export default function VideoPlayer({
                     : <Volume2 className="w-4 h-4" />
                   }
                 </button>
-                <span className="text-white/60 text-xs tabular-nums font-mono">
+
+                <span className="text-white/60 text-xs tabular-nums font-mono select-none">
                   {formatTime(currentTime)} / {formatTime(duration)}
                 </span>
               </div>
