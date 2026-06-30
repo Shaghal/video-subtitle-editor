@@ -10,8 +10,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'SubCraft — Subtitle Editor',
-  description: 'Burn styled subtitles into video, right in your browser. Edit timing, style, and export with hardsub.',
+  title: 'SubCraft — Burn Subtitles Into Video, In Your Browser',
+  description: 'The no-install subtitle editor. Style fonts, adjust timing, and burn hardcoded subtitles into your video — all in the browser, all free.',
   generator: 'v0.app',
 }
 
