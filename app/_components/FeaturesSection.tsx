@@ -5,8 +5,8 @@ import {
   Download,
   Film,
   Layers,
-  AlignBottom,
-  MousePointer2,
+  Move,
+  Wand2,
 } from 'lucide-react'
 
 const FEATURES = [
@@ -32,7 +32,7 @@ const FEATURES = [
     wide: false,
   },
   {
-    icon: AlignBottom,
+    icon: Move,
     title: 'Subtitle placement',
     description:
       'Position subtitles at the top, center, or bottom of the frame — where they belong for your content.',
@@ -60,7 +60,7 @@ const FEATURES = [
     wide: false,
   },
   {
-    icon: MousePointer2,
+    icon: Wand2,
     title: 'Hardsub export',
     description:
       'Burn styled subtitles directly into the video, pixel-perfect, entirely in your browser using @tscaps/engine.',
