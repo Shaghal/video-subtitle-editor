@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 
 interface VideoPlayerProps {
   videoSrc: string | null
-  cues: SubtitleCue[]
+  cues?: SubtitleCue[] | null
   style: SubtitleStyle
   onTimeUpdate?: (time: number) => void
   activeCueId?: number | null
@@ -33,7 +33,7 @@ function hexToRgba(hex: string, opacity: number): string {
 
 export default function VideoPlayer({
   videoSrc,
-  cues,
+  cues = [],
   style,
   onTimeUpdate,
   activeCueId,
@@ -70,7 +70,7 @@ export default function VideoPlayer({
   }, [loop])
 
   // ── Active cue: derived from currentTime every render ──────────
-  const activeCue = cues.find(
+  const activeCue = cues?.find(
     (c) => currentTime >= c.startTime && currentTime <= c.endTime
   ) ?? null
 
