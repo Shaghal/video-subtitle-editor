@@ -236,13 +236,6 @@
   .hover-lift {
     @apply transition-all duration-300 hover:shadow-2xl hover:shadow-primary/20 hover:-translate-y-1;
   }
-}
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
-  }
 
   /* Custom scrollbar */
   ::-webkit-scrollbar {
