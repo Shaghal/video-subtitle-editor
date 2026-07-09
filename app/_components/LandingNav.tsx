@@ -44,12 +44,20 @@ export default function LandingNav() {
           </a>
         </div>
 
-        <Link
-          href="/editor"
-          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:shadow-lg hover:shadow-primary/20 transition-all duration-200"
-        >
-          Open Editor
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/chat"
+            className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-surface-overlay transition-all duration-200"
+          >
+            Chat Mode
+          </Link>
+          <Link
+            href="/editor"
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:shadow-lg hover:shadow-primary/20 transition-all duration-200"
+          >
+            Open Editor
+          </Link>
+        </div>
       </div>
     </nav>
   )
