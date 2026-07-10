@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Upload, Film, FileText, Send, X, Palette, Clock, PackageOpen, ArrowRight, Sun, Moon } from 'lucide-react'
+import { Upload, Palette, Clock, PackageOpen, Sun, Moon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SubtitleCue, SubtitleStyle, DEFAULT_STYLE, parseSrt } from '@/lib/srt'
 import VideoPlayer from '@/components/VideoPlayer'
@@ -9,103 +9,40 @@ import SubtitleStylePanel from '@/components/SubtitleStylePanel'
 import SubtitleTimingEditor from '@/components/SubtitleTimingEditor'
 import ExportPanel from '@/components/ExportPanel'
 
-type ChatMode = 'welcome' | 'style' | 'timing' | 'export' | 'done'
-
-interface ChatMessage {
-  id: string
-  role: 'assistant' | 'user'
-  content: string
-  timestamp: Date
-}
+type ChatMode = 'welcome' | 'style' | 'timing' | 'export'
 
 const CHAT_OPTIONS = [
   {
     id: 'style',
     title: 'Customize Style',
-    description: 'Adjust fonts, colors, backdrop, and placement',
-    icon: <Palette className="w-5 h-5" />,
+    description: 'Fonts, colors, backdrop, placement',
+    icon: Palette,
   },
   {
     id: 'timing',
     title: 'Adjust Timing',
-    description: 'Edit subtitle timing and synchronization',
-    icon: <Clock className="w-5 h-5" />,
+    description: 'Edit subtitle sync',
+    icon: Clock,
   },
   {
     id: 'export',
     title: 'Export & Download',
-    description: 'Download SRT or render hardsub video',
-    icon: <PackageOpen className="w-5 h-5" />,
+    description: 'Download SRT or hardsub video',
+    icon: PackageOpen,
   },
 ]
 
-function DropZone({
-  accept,
-  onFile,
-  icon,
-  title,
-  subtitle,
-}: {
-  accept: string
-  onFile: (file: File) => void
-  icon: React.ReactNode
-  title: string
-  subtitle: string
-}) {
-  const [isDragOver, setIsDragOver] = useState(false)
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(true)
-  }
-  const handleDragLeave = () => setIsDragOver(false)
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    const file = Array.from(e.dataTransfer.files).find((f) => f.type.match(accept))
-    if (file) onFile(file)
-  }
-  return (
-    <label
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={cn(
-        'flex flex-col items-center justify-center gap-2 p-6 rounded-lg border-2 border-dashed cursor-pointer transition-all',
-        isDragOver ? 'border-primary bg-primary/5' : 'border-border bg-surface-overlay/30 hover:border-primary/50'
-      )}
-    >
-      <input
-        type="file"
-        accept={accept}
-        onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
-        className="hidden"
-      />
-      {icon}
-      <div className="text-center text-sm">
-        <p className="font-medium text-foreground">{title}</p>
-        <p className="text-xs text-muted-foreground">{subtitle}</p>
-      </div>
-    </label>
-  )
-}
-
-export default function ChatEditorPage() {
-  const [videoSrc, setVideoSrc] = useState<string>('')
-  const [videoBlob, setVideoBlob] = useState<Blob | null>(null)
-  const [videoName, setVideoName] = useState<string | null>(null)
-  const [srtFile, setSrtFile] = useState<string>('')
-  const [cues, setCues] = useState<SubtitleCue[]>([])
-  const [currentTime, setCurrentTime] = useState(0)
-  const [style, setStyle] = useState<SubtitleStyle>(DEFAULT_STYLE)
-  const [showControls, setShowControls] = useState(true)
-  const [loop, setLoop] = useState(false)
-  const [muted, setMuted] = useState(false)
+export default function ChatEditor() {
   const [isDark, setIsDark] = useState(true)
+  const [videoFile, setVideoFile] = useState<File | null>(null)
+  const [videoSrc, setVideoSrc] = useState<string | null>(null)
+  const [srtFile, setSrtFile] = useState<File | null>(null)
+  const [cues, setCues] = useState<SubtitleCue[]>([])
+  const [style, setStyle] = useState<SubtitleStyle>(DEFAULT_STYLE)
+  const [chatMode, setChatMode] = useState<ChatMode>('welcome')
+  const videoRef = useRef<HTMLVideoElement>(null)
 
-  const [mode, setMode] = useState<ChatMode>('welcome')
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-
+  // Theme toggle
   useEffect(() => {
     const html = document.documentElement
     if (isDark) {
@@ -118,267 +55,216 @@ export default function ChatEditorPage() {
   }, [isDark])
 
   useEffect(() => {
-    document.documentElement.classList.add('dark')
+    document.documentElement.classList.add('light')
+    setIsDark(false)
   }, [])
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
+  const handleVideoFile = useCallback((file: File) => {
+    setVideoFile(file)
+    const url = URL.createObjectURL(file)
+    setVideoSrc(url)
+  }, [])
 
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages])
+  const handleSrtFile = useCallback((file: File) => {
+    setSrtFile(file)
+    file.text().then((content) => {
+      const parsed = parseSrt(content)
+      setCues(parsed)
+    })
+  }, [])
 
-  const addMessage = (role: 'assistant' | 'user', content: string) => {
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Math.random().toString(36),
-        role,
-        content,
-        timestamp: new Date(),
-      },
-    ])
-  }
-
-  const handleVideoFile = (file: File) => {
-    setVideoName(file.name)
-    setVideoBlob(file)
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const src = e.target?.result as string
-      setVideoSrc(src)
-      addMessage('assistant', `Video uploaded: ${file.name}. Now, would you like to upload a subtitle file (.srt)?`)
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'video' | 'srt') => {
+    const file = e.currentTarget.files?.[0]
+    if (file) {
+      if (type === 'video') handleVideoFile(file)
+      else handleSrtFile(file)
     }
-    reader.readAsDataURL(file)
-  }
-
-  const handleSrtFile = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const text = e.target?.result as string
-      setSrtFile(text)
-      try {
-        const parsed = parseSrt(text)
-        setCues(parsed)
-        addMessage('assistant', `Subtitles loaded: ${parsed.length} cues found. What would you like to do?`)
-        setMode('welcome')
-      } catch (err) {
-        addMessage('assistant', 'Failed to parse subtitle file. Please check the format.')
-      }
-    }
-    reader.readAsText(file)
-  }
-
-  const handleOptionClick = (optionId: string) => {
-    if (optionId === 'style') {
-      addMessage('user', 'Customize Style')
-      addMessage('assistant', 'Great! Let\'s customize the subtitle appearance.')
-      setMode('style')
-    } else if (optionId === 'timing') {
-      addMessage('user', 'Adjust Timing')
-      addMessage('assistant', 'Perfect! Let\'s adjust the subtitle timing.')
-      setMode('timing')
-    } else if (optionId === 'export') {
-      addMessage('user', 'Export & Download')
-      addMessage('assistant', 'Ready to export! Choose how you\'d like to download.')
-      setMode('export')
-    }
-  }
-
-  const handleBack = () => {
-    addMessage('assistant', 'What would you like to do next?')
-    setMode('welcome')
   }
 
   const isReady = videoSrc && cues.length > 0
 
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface sticky top-0 z-50">
-        <div className="flex items-center gap-2">
-          <Film className="w-5 h-5 text-primary" />
-          <h1 className="text-lg font-semibold">SubCraft Chat</h1>
-        </div>
+    <div className={cn(
+      'min-h-screen',
+      isDark ? 'dark bg-background' : 'light bg-[#f5f3f0]'
+    )}>
+      {/* Theme toggle */}
+      <div className="fixed top-4 right-4 z-50">
         <button
           onClick={() => setIsDark((d) => !d)}
-          className="w-8 h-8 flex items-center justify-center rounded-lg border border-border bg-surface text-muted-foreground hover:text-foreground transition-all"
+          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/80 backdrop-blur border border-black/5 text-gray-600 hover:text-gray-900 transition-all hover:shadow-md"
         >
-          {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
       </div>
 
-      {/* Main content - Split: Video + Chat */}
-      <div className="flex-1 flex gap-4 overflow-hidden p-4">
-        {/* Left: Video Player */}
-        <div className="flex-1 flex flex-col gap-3 min-w-0">
-          <div className="rounded-lg border border-border bg-surface overflow-hidden flex-1">
-            {videoSrc ? (
-              <VideoPlayer
-                videoSrc={videoSrc}
-                subtitles={cues}
-                style={style}
-                currentTime={currentTime}
-                onTimeUpdate={setCurrentTime}
-                showControls={showControls}
-                loop={loop}
-                muted={muted}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-surface-overlay">
-                <div className="text-center">
-                  <Film className="w-12 h-12 text-muted-foreground/30 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No video loaded yet</p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Control toggles */}
-          <div className="flex gap-2 flex-wrap">
-            <label className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-surface-overlay/50 text-sm cursor-pointer hover:border-primary/40 transition-all">
-              <input
-                type="checkbox"
-                checked={showControls}
-                onChange={(e) => setShowControls(e.target.checked)}
-                className="w-4 h-4"
-              />
-              Show Controls
-            </label>
-            <label className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-surface-overlay/50 text-sm cursor-pointer hover:border-primary/40 transition-all">
-              <input
-                type="checkbox"
-                checked={loop}
-                onChange={(e) => setLoop(e.target.checked)}
-                className="w-4 h-4"
-              />
-              Loop
-            </label>
-            <label className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-surface-overlay/50 text-sm cursor-pointer hover:border-primary/40 transition-all">
-              <input
-                type="checkbox"
-                checked={muted}
-                onChange={(e) => setMuted(e.target.checked)}
-                className="w-4 h-4"
-              />
-              Sound
-            </label>
+      <div className="flex flex-col h-screen">
+        {/* Header */}
+        <div className="border-b border-black/5 bg-white/40 backdrop-blur">
+          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#d4a5a5]" />
+              <h1 className="text-lg font-semibold text-gray-900">SubCraft Chat</h1>
+            </div>
           </div>
         </div>
 
-        {/* Right: Chat Interface */}
-        <div className="w-96 flex flex-col border border-border rounded-lg bg-surface-overlay overflow-hidden">
-          {/* Chat messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {messages.length === 0 ? (
-              <div className="text-center text-sm text-muted-foreground py-8">
-                <p>Upload a video and subtitle file to get started</p>
+        {/* Main content */}
+        <div className="flex-1 overflow-hidden flex gap-6 p-6">
+          {/* Video section */}
+          <div className="flex-1 flex flex-col">
+            {isReady ? (
+              <div className="flex-1 bg-white rounded-xl overflow-hidden shadow-sm border border-black/5">
+                <VideoPlayer
+                  videoSrc={videoSrc}
+                  cues={cues}
+                  style={style}
+                  showControls={true}
+                  muted={false}
+                />
               </div>
             ) : (
-              messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={cn(
-                    'flex gap-2',
-                    msg.role === 'user' ? 'justify-end' : 'justify-start'
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'rounded-lg px-3 py-2 max-w-xs text-sm',
-                      msg.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-surface text-foreground border border-border'
-                    )}
-                  >
-                    {msg.content}
-                  </div>
+              <div className="flex-1 bg-gradient-to-br from-[#f5f3f0] to-[#ede9e4] rounded-xl border-2 border-dashed border-black/10 flex items-center justify-center">
+                <div className="text-center">
+                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-600 font-medium">Upload video and subtitles to start</p>
                 </div>
-              ))
+              </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
 
-          {/* Chat content area */}
-          <div className="border-t border-border p-4 space-y-3 max-h-96 overflow-y-auto">
-            {!isReady ? (
-              <div className="space-y-2">
-                <DropZone
-                  accept="video/*"
-                  onFile={handleVideoFile}
-                  icon={<Film className="w-6 h-6 text-muted-foreground" />}
-                  title="Video"
-                  subtitle="Drag or click to upload"
-                />
-                <DropZone
-                  accept=".srt,.vtt"
-                  onFile={handleSrtFile}
-                  icon={<FileText className="w-6 h-6 text-muted-foreground" />}
-                  title="Subtitles (.srt)"
-                  subtitle="Drag or click to upload"
-                />
-              </div>
-            ) : mode === 'welcome' ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase">What would you like to do?</p>
-                {CHAT_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => handleOptionClick(opt.id)}
-                    className="w-full text-left flex items-start gap-3 p-3 rounded-lg border border-border bg-surface hover:border-primary/40 hover:bg-surface-raised transition-all"
-                  >
-                    <div className="text-primary mt-0.5">{opt.icon}</div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground">{opt.title}</p>
-                      <p className="text-xs text-muted-foreground">{opt.description}</p>
+          {/* Chat section */}
+          <div className="w-96 flex flex-col bg-white/50 backdrop-blur rounded-xl border border-black/5 overflow-hidden shadow-sm">
+            {/* Chat messages area */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Welcome or file upload */}
+              {!isReady && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-gray-500 tracking-wider">SUBCRAFṬ</div>
+                    <p className="text-gray-900 font-medium">Upload your files to get started</p>
+                  </div>
+
+                  {/* File upload zones */}
+                  <div className="space-y-3">
+                    <label className="block">
+                      <input
+                        type="file"
+                        accept="video/*"
+                        onChange={(e) => handleFileSelect(e, 'video')}
+                        className="hidden"
+                      />
+                      <div className="bg-gradient-to-br from-[#e8f5e9] to-[#c8e6c9] rounded-lg p-3 cursor-pointer hover:shadow-sm transition-all border border-green-200/50">
+                        <div className="text-sm font-medium text-green-900">{videoFile?.name || 'Select Video'}</div>
+                        <div className="text-xs text-green-700/70">Video file (.mp4, .webm, etc.)</div>
+                      </div>
+                    </label>
+
+                    <label className="block">
+                      <input
+                        type="file"
+                        accept=".srt"
+                        onChange={(e) => handleFileSelect(e, 'srt')}
+                        className="hidden"
+                      />
+                      <div className="bg-gradient-to-br from-[#f3e5f5] to-[#e1bee7] rounded-lg p-3 cursor-pointer hover:shadow-sm transition-all border border-purple-200/50">
+                        <div className="text-sm font-medium text-purple-900">{srtFile?.name || 'Select Subtitles'}</div>
+                        <div className="text-xs text-purple-700/70">SubRip file (.srt)</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* After files uploaded */}
+              {isReady && (
+                <div className="space-y-6">
+                  {/* AI message */}
+                  <div className="space-y-3">
+                    <div className="text-xs font-semibold text-gray-500 tracking-wider">SUBCRAFṬ</div>
+                    <p className="text-gray-900">What would you like to do with your subtitles?</p>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="space-y-2">
+                    {CHAT_OPTIONS.map((option) => {
+                      const IconComponent = option.icon
+                      return (
+                        <button
+                          key={option.id}
+                          onClick={() => setChatMode(option.id as ChatMode)}
+                          className={cn(
+                            'w-full text-left p-3 rounded-lg transition-all border',
+                            'hover:shadow-sm active:scale-95',
+                            option.id === 'style' && 'bg-gradient-to-r from-[#f0e6ff] to-[#e6d9ff] border-purple-200/50 hover:border-purple-300/75',
+                            option.id === 'timing' && 'bg-gradient-to-r from-[#e0f7fa] to-[#b2ebf2] border-cyan-200/50 hover:border-cyan-300/75',
+                            option.id === 'export' && 'bg-gradient-to-r from-[#ffe0e6] to-[#ffc9d0] border-pink-200/50 hover:border-pink-300/75'
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            <IconComponent className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <div className="font-medium text-sm text-gray-900">{option.title}</div>
+                              <div className="text-xs text-gray-600">{option.description}</div>
+                            </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Inline editing component */}
+                  {chatMode !== 'welcome' && (
+                    <div className="pt-4 border-t border-black/5">
+                      <div className="space-y-3">
+                        <div className="text-xs font-semibold text-gray-500 tracking-wider">YOU</div>
+                        
+                        {/* Style editor */}
+                        {chatMode === 'style' && (
+                          <div className="bg-gradient-to-br from-[#f9f7f4] to-[#f5f3f0] rounded-lg p-4 border border-black/5">
+                            <SubtitleStylePanel
+                              cues={cues}
+                              style={style}
+                              onStyleChange={setStyle}
+                            />
+                          </div>
+                        )}
+
+                        {/* Timing editor */}
+                        {chatMode === 'timing' && (
+                          <div className="bg-gradient-to-br from-[#f9f7f4] to-[#f5f3f0] rounded-lg p-4 border border-black/5 max-h-96 overflow-y-auto">
+                            <SubtitleTimingEditor
+                              cues={cues}
+                              onCuesChange={setCues}
+                            />
+                          </div>
+                        )}
+
+                        {/* Export panel */}
+                        {chatMode === 'export' && (
+                          <div className="bg-gradient-to-br from-[#f9f7f4] to-[#f5f3f0] rounded-lg p-4 border border-black/5">
+                            <ExportPanel
+                              cues={cues}
+                              style={style}
+                              videoSrc={videoSrc || ''}
+                              videoFile={videoFile}
+                            />
+                          </div>
+                        )}
+
+                        {/* Back button */}
+                        <button
+                          onClick={() => setChatMode('welcome')}
+                          className="w-full px-3 py-2 text-sm text-gray-600 hover:text-gray-900 border border-black/10 rounded-lg transition-colors hover:bg-black/5"
+                        >
+                          ← Back to options
+                        </button>
+                      </div>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  </button>
-                ))}
-              </div>
-            ) : mode === 'style' ? (
-              <div className="space-y-3">
-                <button
-                  onClick={handleBack}
-                  className="w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-all"
-                >
-                  ← Back
-                </button>
-                <SubtitleStylePanel style={style} onChange={setStyle} />
-              </div>
-            ) : mode === 'timing' ? (
-              <div className="space-y-3">
-                <button
-                  onClick={handleBack}
-                  className="w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-all"
-                >
-                  ← Back
-                </button>
-                <SubtitleTimingEditor
-                  cues={cues}
-                  currentTime={currentTime}
-                  onChange={setCues}
-                  onCueClick={(id) => {
-                    const cue = cues.find((c) => c.index === id)
-                    if (cue) {
-                      // Jump to cue start time
-                      setCurrentTime(cue.startTime)
-                    }
-                  }}
-                />
-              </div>
-            ) : mode === 'export' ? (
-              <div className="space-y-3">
-                <button
-                  onClick={handleBack}
-                  className="w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-all"
-                >
-                  ← Back
-                </button>
-                <ExportPanel cues={cues} style={style} videoBlob={videoBlob} videoName={videoName} />
-              </div>
-            ) : null}
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
