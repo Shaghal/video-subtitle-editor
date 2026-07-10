@@ -1,46 +1,35 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Upload, Palette, Clock, PackageOpen, Sun, Moon } from 'lucide-react'
+import { Upload, Palette, Clock, PackageOpen, Sun, Moon, ChevronRight, ArrowLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SubtitleCue, SubtitleStyle, DEFAULT_STYLE, parseSrt } from '@/lib/srt'
 import VideoPlayer from '@/components/VideoPlayer'
 import SubtitleStylePanel from '@/components/SubtitleStylePanel'
 import SubtitleTimingEditor from '@/components/SubtitleTimingEditor'
 import ExportPanel from '@/components/ExportPanel'
+import Link from 'next/link'
 
-type ChatMode = 'welcome' | 'style' | 'timing' | 'export'
+type ChatStep = 'welcome' | 'main' | 'style' | 'timing' | 'export' | 'style-detail'
 
-const CHAT_OPTIONS = [
-  {
-    id: 'style',
-    title: 'Customize Style',
-    description: 'Fonts, colors, backdrop, placement',
-    icon: Palette,
-  },
-  {
-    id: 'timing',
-    title: 'Adjust Timing',
-    description: 'Edit subtitle sync',
-    icon: Clock,
-  },
-  {
-    id: 'export',
-    title: 'Export & Download',
-    description: 'Download SRT or hardsub video',
-    icon: PackageOpen,
-  },
-]
+interface MessageBubble {
+  id: string
+  type: 'assistant' | 'user'
+  content: React.ReactNode
+  step: ChatStep
+}
 
 export default function ChatEditor() {
-  const [isDark, setIsDark] = useState(true)
+  const [isDark, setIsDark] = useState(false)
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const [videoSrc, setVideoSrc] = useState<string | null>(null)
   const [srtFile, setSrtFile] = useState<File | null>(null)
   const [cues, setCues] = useState<SubtitleCue[]>([])
   const [style, setStyle] = useState<SubtitleStyle>(DEFAULT_STYLE)
-  const [chatMode, setChatMode] = useState<ChatMode>('welcome')
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const [chatStep, setChatStep] = useState<ChatStep>('welcome')
+  const [messages, setMessages] = useState<MessageBubble[]>([])
+  const [selectedStyleMenu, setSelectedStyleMenu] = useState<string | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Theme toggle
   useEffect(() => {
@@ -56,8 +45,13 @@ export default function ChatEditor() {
 
   useEffect(() => {
     document.documentElement.classList.add('light')
-    setIsDark(false)
   }, [])
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  useEffect(scrollToBottom, [messages])
 
   const handleVideoFile = useCallback((file: File) => {
     setVideoFile(file)
@@ -81,18 +75,54 @@ export default function ChatEditor() {
     }
   }
 
+  const handleShowMainMenu = () => {
+    if (messages.length === 0 || messages[messages.length - 1].step !== 'main') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}`,
+          type: 'assistant',
+          content: 'What would you like to adjust?',
+          step: 'main',
+        },
+      ])
+    }
+    setChatStep('main')
+  }
+
+  const handleSelectOption = (option: 'style' | 'timing' | 'export') => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `user-${Date.now()}`,
+        type: 'user',
+        content: option === 'style' ? 'Customize Style' : option === 'timing' ? 'Adjust Timing' : 'Export & Download',
+        step: option,
+      },
+    ])
+    setChatStep(option)
+  }
+
+  const handleBackToMenu = () => {
+    setChatStep('main')
+    setSelectedStyleMenu(null)
+  }
+
   const isReady = videoSrc && cues.length > 0
 
   return (
-    <div className={cn(
-      'min-h-screen',
-      isDark ? 'dark bg-background' : 'light bg-[#f5f3f0]'
-    )}>
-      {/* Theme toggle */}
-      <div className="fixed top-4 right-4 z-50">
+    <div className={cn('min-h-screen', isDark ? 'dark bg-background' : 'light bg-[#faf8f6]')}>
+      {/* Mode toggle buttons */}
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+        <Link
+          href="/editor"
+          className="px-3 py-2 rounded-lg text-sm font-medium bg-white/60 backdrop-blur border border-black/10 text-gray-700 hover:bg-white/80 transition-all"
+        >
+          Pro Mode
+        </Link>
         <button
           onClick={() => setIsDark((d) => !d)}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/80 backdrop-blur border border-black/5 text-gray-600 hover:text-gray-900 transition-all hover:shadow-md"
+          className="w-10 h-10 flex items-center justify-center rounded-lg bg-white/60 backdrop-blur border border-black/10 text-gray-600 hover:bg-white/80 transition-all"
         >
           {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
@@ -100,11 +130,11 @@ export default function ChatEditor() {
 
       <div className="flex flex-col h-screen">
         {/* Header */}
-        <div className="border-b border-black/5 bg-white/40 backdrop-blur">
-          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-[#d4a5a5]" />
-              <h1 className="text-lg font-semibold text-gray-900">SubCraft Chat</h1>
+        <div className="border-b border-black/8 bg-white/40 backdrop-blur">
+          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center">
+            <div className="flex items-center gap-2.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-[#d4b5d0]" />
+              <h1 className="text-base font-semibold text-gray-800">SubCraft</h1>
             </div>
           </div>
         </div>
@@ -114,7 +144,7 @@ export default function ChatEditor() {
           {/* Video section */}
           <div className="flex-1 flex flex-col">
             {isReady ? (
-              <div className="flex-1 bg-white rounded-xl overflow-hidden shadow-sm border border-black/5">
+              <div className="flex-1 bg-white rounded-2xl overflow-hidden shadow-sm border border-black/8">
                 <VideoPlayer
                   videoSrc={videoSrc}
                   cues={cues}
@@ -124,25 +154,27 @@ export default function ChatEditor() {
                 />
               </div>
             ) : (
-              <div className="flex-1 bg-gradient-to-br from-[#f5f3f0] to-[#ede9e4] rounded-xl border-2 border-dashed border-black/10 flex items-center justify-center">
+              <div className="flex-1 bg-gradient-to-br from-[#f5e6ff] via-[#faf8f6] to-[#e6f3ff] rounded-2xl border-2 border-dashed border-black/15 flex items-center justify-center">
                 <div className="text-center">
-                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600 font-medium">Upload video and subtitles to start</p>
+                  <Upload className="w-14 h-14 text-purple-300 mx-auto mb-3" />
+                  <p className="text-gray-700 font-medium text-lg">Upload video and subtitles to begin</p>
                 </div>
               </div>
             )}
           </div>
 
           {/* Chat section */}
-          <div className="w-96 flex flex-col bg-white/50 backdrop-blur rounded-xl border border-black/5 overflow-hidden shadow-sm">
+          <div className="w-96 flex flex-col bg-white/60 backdrop-blur rounded-2xl border border-black/8 overflow-hidden shadow-sm">
             {/* Chat messages area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Welcome or file upload */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {/* Welcome/Upload state */}
               {!isReady && (
-                <div className="space-y-4">
+                <div className="space-y-5">
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold text-gray-500 tracking-wider">SUBCRAFṬ</div>
-                    <p className="text-gray-900 font-medium">Upload your files to get started</p>
+                    <div className="text-xs font-semibold text-gray-500 tracking-wide">SUBCRAFṬ</div>
+                    <div className="bg-gradient-to-br from-[#f9f7f5] to-[#faf8f6] rounded-xl p-4 border border-black/8">
+                      <p className="text-gray-800 font-medium text-sm leading-relaxed">Let's get started! Please upload your video and subtitle file.</p>
+                    </div>
                   </div>
 
                   {/* File upload zones */}
@@ -154,9 +186,9 @@ export default function ChatEditor() {
                         onChange={(e) => handleFileSelect(e, 'video')}
                         className="hidden"
                       />
-                      <div className="bg-gradient-to-br from-[#e8f5e9] to-[#c8e6c9] rounded-lg p-3 cursor-pointer hover:shadow-sm transition-all border border-green-200/50">
-                        <div className="text-sm font-medium text-green-900">{videoFile?.name || 'Select Video'}</div>
-                        <div className="text-xs text-green-700/70">Video file (.mp4, .webm, etc.)</div>
+                      <div className="bg-gradient-to-br from-[#ffe6f0] to-[#ffd9e8] rounded-lg p-4 cursor-pointer hover:shadow-md transition-all border border-rose-200/60 hover:border-rose-300/80">
+                        <div className="text-sm font-semibold text-rose-900">{videoFile?.name || 'Select Video'}</div>
+                        <div className="text-xs text-rose-800/70 mt-1">MP4, WebM, or other video format</div>
                       </div>
                     </label>
 
@@ -167,9 +199,9 @@ export default function ChatEditor() {
                         onChange={(e) => handleFileSelect(e, 'srt')}
                         className="hidden"
                       />
-                      <div className="bg-gradient-to-br from-[#f3e5f5] to-[#e1bee7] rounded-lg p-3 cursor-pointer hover:shadow-sm transition-all border border-purple-200/50">
-                        <div className="text-sm font-medium text-purple-900">{srtFile?.name || 'Select Subtitles'}</div>
-                        <div className="text-xs text-purple-700/70">SubRip file (.srt)</div>
+                      <div className="bg-gradient-to-br from-[#e6e6ff] to-[#f0e6ff] rounded-lg p-4 cursor-pointer hover:shadow-md transition-all border border-purple-200/60 hover:border-purple-300/80">
+                        <div className="text-sm font-semibold text-purple-900">{srtFile?.name || 'Select Subtitles'}</div>
+                        <div className="text-xs text-purple-800/70 mt-1">SubRip format (.srt)</div>
                       </div>
                     </label>
                   </div>
@@ -178,92 +210,184 @@ export default function ChatEditor() {
 
               {/* After files uploaded */}
               {isReady && (
-                <div className="space-y-6">
-                  {/* AI message */}
-                  <div className="space-y-3">
-                    <div className="text-xs font-semibold text-gray-500 tracking-wider">SUBCRAFṬ</div>
-                    <p className="text-gray-900">What would you like to do with your subtitles?</p>
-                  </div>
+                <div className="space-y-5">
+                  {/* First message - ask what to adjust */}
+                  {(chatStep === 'welcome' || messages.length === 0) && (
+                    <>
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold text-gray-500 tracking-wide">SUBCRAFṬ</div>
+                        <div className="bg-gradient-to-br from-[#f9f7f5] to-[#faf8f6] rounded-xl p-4 border border-black/8">
+                          <p className="text-gray-800 font-medium text-sm leading-relaxed">What would you like to adjust in your subtitles?</p>
+                        </div>
+                      </div>
 
-                  {/* Action buttons */}
-                  <div className="space-y-2">
-                    {CHAT_OPTIONS.map((option) => {
-                      const IconComponent = option.icon
-                      return (
+                      {/* Main menu options */}
+                      <div className="space-y-2.5">
                         <button
-                          key={option.id}
-                          onClick={() => setChatMode(option.id as ChatMode)}
-                          className={cn(
-                            'w-full text-left p-3 rounded-lg transition-all border',
-                            'hover:shadow-sm active:scale-95',
-                            option.id === 'style' && 'bg-gradient-to-r from-[#f0e6ff] to-[#e6d9ff] border-purple-200/50 hover:border-purple-300/75',
-                            option.id === 'timing' && 'bg-gradient-to-r from-[#e0f7fa] to-[#b2ebf2] border-cyan-200/50 hover:border-cyan-300/75',
-                            option.id === 'export' && 'bg-gradient-to-r from-[#ffe0e6] to-[#ffc9d0] border-pink-200/50 hover:border-pink-300/75'
-                          )}
+                          onClick={() => {
+                            handleSelectOption('style')
+                            setMessages((prev) => [
+                              ...prev,
+                              {
+                                id: `msg-${Date.now()}`,
+                                type: 'assistant',
+                                content: 'Great! What aspect of styling would you like to customize?',
+                                step: 'style-detail',
+                              },
+                            ])
+                            setChatStep('style-detail')
+                          }}
+                          className="w-full text-left p-3.5 rounded-lg transition-all border border-purple-200/60 bg-gradient-to-br from-[#f5e6ff] to-[#ede6ff] hover:border-purple-300/80 hover:shadow-md group"
                         >
-                          <div className="flex items-start gap-3">
-                            <IconComponent className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                          <div className="flex items-center justify-between">
                             <div>
-                              <div className="font-medium text-sm text-gray-900">{option.title}</div>
-                              <div className="text-xs text-gray-600">{option.description}</div>
+                              <div className="font-semibold text-sm text-purple-900">Customize Style</div>
+                              <div className="text-xs text-purple-800/70 mt-0.5">Fonts, colors, backdrop, placement</div>
                             </div>
+                            <ChevronRight className="w-4 h-4 text-purple-400 group-hover:translate-x-1 transition-transform" />
                           </div>
                         </button>
-                      )
-                    })}
-                  </div>
 
-                  {/* Inline editing component */}
-                  {chatMode !== 'welcome' && (
-                    <div className="pt-4 border-t border-black/5">
-                      <div className="space-y-3">
-                        <div className="text-xs font-semibold text-gray-500 tracking-wider">YOU</div>
-                        
-                        {/* Style editor */}
-                        {chatMode === 'style' && (
-                          <div className="bg-gradient-to-br from-[#f9f7f4] to-[#f5f3f0] rounded-lg p-4 border border-black/5">
-                            <SubtitleStylePanel
-                              cues={cues}
-                              style={style}
-                              onStyleChange={setStyle}
-                            />
-                          </div>
-                        )}
-
-                        {/* Timing editor */}
-                        {chatMode === 'timing' && (
-                          <div className="bg-gradient-to-br from-[#f9f7f4] to-[#f5f3f0] rounded-lg p-4 border border-black/5 max-h-96 overflow-y-auto">
-                            <SubtitleTimingEditor
-                              cues={cues}
-                              onCuesChange={setCues}
-                            />
-                          </div>
-                        )}
-
-                        {/* Export panel */}
-                        {chatMode === 'export' && (
-                          <div className="bg-gradient-to-br from-[#f9f7f4] to-[#f5f3f0] rounded-lg p-4 border border-black/5">
-                            <ExportPanel
-                              cues={cues}
-                              style={style}
-                              videoSrc={videoSrc || ''}
-                              videoFile={videoFile}
-                            />
-                          </div>
-                        )}
-
-                        {/* Back button */}
                         <button
-                          onClick={() => setChatMode('welcome')}
-                          className="w-full px-3 py-2 text-sm text-gray-600 hover:text-gray-900 border border-black/10 rounded-lg transition-colors hover:bg-black/5"
+                          onClick={() => {
+                            handleSelectOption('timing')
+                            setMessages((prev) => [
+                              ...prev,
+                              {
+                                id: `msg-${Date.now()}`,
+                                type: 'assistant',
+                                content: 'Perfect! Let\'s sync your subtitles to the video.',
+                                step: 'timing',
+                              },
+                            ])
+                            setChatStep('timing')
+                          }}
+                          className="w-full text-left p-3.5 rounded-lg transition-all border border-cyan-200/60 bg-gradient-to-br from-[#e6f7ff] to-[#dff0ff] hover:border-cyan-300/80 hover:shadow-md group"
                         >
-                          ← Back to options
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-semibold text-sm text-cyan-900">Adjust Timing</div>
+                              <div className="text-xs text-cyan-800/70 mt-0.5">Sync subtitles with the video</div>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-cyan-400 group-hover:translate-x-1 transition-transform" />
+                          </div>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            handleSelectOption('export')
+                            setMessages((prev) => [
+                              ...prev,
+                              {
+                                id: `msg-${Date.now()}`,
+                                type: 'assistant',
+                                content: 'Ready to export! Choose how you\'d like to save your work.',
+                                step: 'export',
+                              },
+                            ])
+                            setChatStep('export')
+                          }}
+                          className="w-full text-left p-3.5 rounded-lg transition-all border border-rose-200/60 bg-gradient-to-br from-[#ffe6f0] to-[#ffd9e8] hover:border-rose-300/80 hover:shadow-md group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-semibold text-sm text-rose-900">Export & Download</div>
+                              <div className="text-xs text-rose-800/70 mt-0.5">Save SRT or burn into video</div>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-rose-400 group-hover:translate-x-1 transition-transform" />
+                          </div>
                         </button>
                       </div>
+                    </>
+                  )}
+
+                  {/* Render messages from history */}
+                  {messages.map((msg) => (
+                    <div key={msg.id} className="space-y-2">
+                      <div className="text-xs font-semibold text-gray-500 tracking-wide">
+                        {msg.type === 'assistant' ? 'SUBCRAFṬ' : 'YOU'}
+                      </div>
+                      <div
+                        className={cn(
+                          'rounded-xl p-4 border',
+                          msg.type === 'assistant'
+                            ? 'bg-gradient-to-br from-[#f9f7f5] to-[#faf8f6] border-black/8'
+                            : 'bg-gradient-to-br from-[#f0f8ff] to-[#e6f2ff] border-blue-200/40'
+                        )}
+                      >
+                        {msg.type === 'assistant' ? (
+                          <p className="text-gray-800 font-medium text-sm leading-relaxed">{msg.content}</p>
+                        ) : (
+                          <p className="text-gray-800 font-medium text-sm">{msg.content}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Inline editing components */}
+                  {chatStep === 'style-detail' && (
+                    <div className="space-y-3 pt-2 border-t border-black/8">
+                      <div className="text-xs font-semibold text-gray-500 tracking-wide">YOU</div>
+                      <div className="bg-gradient-to-br from-[#faf8f6] to-[#f5f3f0] rounded-xl p-4 border border-black/8 max-h-72 overflow-y-auto">
+                        <SubtitleStylePanel
+                          cues={cues}
+                          style={style}
+                          onStyleChange={setStyle}
+                        />
+                      </div>
+                      <button
+                        onClick={handleBackToMenu}
+                        className="w-full px-3 py-2 text-sm text-gray-600 hover:text-gray-900 border border-black/10 rounded-lg transition-colors hover:bg-black/5 flex items-center justify-center gap-2"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                        Back to menu
+                      </button>
+                    </div>
+                  )}
+
+                  {chatStep === 'timing' && (
+                    <div className="space-y-3 pt-2 border-t border-black/8">
+                      <div className="text-xs font-semibold text-gray-500 tracking-wide">YOU</div>
+                      <div className="bg-gradient-to-br from-[#faf8f6] to-[#f5f3f0] rounded-xl p-4 border border-black/8 max-h-72 overflow-y-auto">
+                        <SubtitleTimingEditor
+                          cues={cues}
+                          onCuesChange={setCues}
+                        />
+                      </div>
+                      <button
+                        onClick={handleBackToMenu}
+                        className="w-full px-3 py-2 text-sm text-gray-600 hover:text-gray-900 border border-black/10 rounded-lg transition-colors hover:bg-black/5 flex items-center justify-center gap-2"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                        Back to menu
+                      </button>
+                    </div>
+                  )}
+
+                  {chatStep === 'export' && (
+                    <div className="space-y-3 pt-2 border-t border-black/8">
+                      <div className="text-xs font-semibold text-gray-500 tracking-wide">YOU</div>
+                      <div className="bg-gradient-to-br from-[#faf8f6] to-[#f5f3f0] rounded-xl p-4 border border-black/8 max-h-72 overflow-y-auto">
+                        <ExportPanel
+                          cues={cues}
+                          style={style}
+                          videoSrc={videoSrc || ''}
+                          videoFile={videoFile}
+                        />
+                      </div>
+                      <button
+                        onClick={handleBackToMenu}
+                        className="w-full px-3 py-2 text-sm text-gray-600 hover:text-gray-900 border border-black/10 rounded-lg transition-colors hover:bg-black/5 flex items-center justify-center gap-2"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                        Back to menu
+                      </button>
                     </div>
                   )}
                 </div>
               )}
+
+              <div ref={messagesEndRef} />
             </div>
           </div>
         </div>
