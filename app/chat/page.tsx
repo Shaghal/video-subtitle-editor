@@ -330,9 +330,8 @@ export default function ChatEditor() {
                       <div className="text-xs font-semibold text-gray-500 tracking-wide">YOU</div>
                       <div className="bg-gradient-to-br from-[#faf8f6] to-[#f5f3f0] rounded-xl p-4 border border-black/8 max-h-72 overflow-y-auto">
                         <SubtitleStylePanel
-                          cues={cues}
                           style={style}
-                          onStyleChange={setStyle}
+                          onChange={setStyle}
                         />
                       </div>
                       <button
@@ -351,7 +350,8 @@ export default function ChatEditor() {
                       <div className="bg-gradient-to-br from-[#faf8f6] to-[#f5f3f0] rounded-xl p-4 border border-black/8 max-h-72 overflow-y-auto">
                         <SubtitleTimingEditor
                           cues={cues}
-                          onCuesChange={setCues}
+                          currentTime={0}
+                          onChange={setCues}
                         />
                       </div>
                       <button
@@ -371,8 +371,8 @@ export default function ChatEditor() {
                         <ExportPanel
                           cues={cues}
                           style={style}
-                          videoSrc={videoSrc || ''}
-                          videoFile={videoFile}
+                          videoBlob={videoFile || null}
+                          videoName={videoFile?.name || null}
                         />
                       </div>
                       <button
